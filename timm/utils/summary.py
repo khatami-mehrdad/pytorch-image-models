@@ -5,6 +5,7 @@ Hacked together by / Copyright 2020 Ross Wightman
 import csv
 import os
 from collections import OrderedDict
+from datetime import datetime
 
 
 def get_outdir(path, *paths, inc=False):
@@ -21,6 +22,17 @@ def get_outdir(path, *paths, inc=False):
         outdir = outdir_inc
         os.makedirs(outdir)
     return outdir
+
+def output_dir(output_path, model_name, input_size, train_test = 'train'):
+    output_dir = ''
+    output_base = output_path if output_path else './output'
+    exp_name = '-'.join([
+        datetime.now().strftime("%Y%m%d-%H%M%S"),
+        model_name,
+        str(input_size)
+    ])
+    output_dir = get_outdir(output_base, train_test, exp_name)
+    return output_dir
 
 
 def update_summary(epoch, train_metrics, eval_metrics, filename, write_header=False):

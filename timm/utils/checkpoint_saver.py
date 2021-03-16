@@ -96,7 +96,7 @@ class CheckpointSaver:
 
         return (None, None) if self.best_metric is None else (self.best_metric, self.best_epoch)
 
-    def _save(self, save_path, epoch, metric=None):
+    def gen_state_dict(self, epoch, metric=None) -> dict :
         save_state = {
             'epoch': epoch,
             'arch': type(self.model).__name__.lower(),
@@ -113,6 +113,11 @@ class CheckpointSaver:
             save_state['state_dict_ema'] = get_state_dict(self.model_ema, self.unwrap_fn)
         if metric is not None:
             save_state['metric'] = metric
+        
+        return save_state
+
+    def _save(self, save_path, epoch, metric=None):
+        save_state = self.gen_state_dict(epoch, metric)
         torch.save(save_state, save_path)
 
     def _cleanup_checkpoints(self, trim=0):

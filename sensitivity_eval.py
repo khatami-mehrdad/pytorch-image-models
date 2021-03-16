@@ -9,7 +9,6 @@ Hacked together by Ross Wightman (https://github.com/rwightman)
 """
 import argparse
 import os
-import os.path as path
 import csv
 import glob
 import time
@@ -22,7 +21,7 @@ from contextlib import suppress
 
 from timm.models import create_model, apply_test_time_pool, load_checkpoint, is_model, list_models
 from timm.data import create_dataset, create_loader, resolve_data_config, RealLabelsImagenet
-from timm.utils import accuracy, AverageMeter, natural_key, setup_default_logging, set_jit_legacy
+from timm.utils import accuracy, AverageMeter, natural_key, setup_default_logging, set_jit_legacy, output_dir
 
 has_apex = False
 try:
@@ -109,8 +108,8 @@ parser.add_argument('--real-labels', default='', type=str, metavar='FILENAME',
                     help='Real labels JSON file for imagenet evaluation')
 parser.add_argument('--valid-labels', default='', type=str, metavar='FILENAME',
                     help='Valid label indices txt file for validation of partial label space')
-parser.add_argument('--prune', action='store_true', help='use pruning')
-
+parser.add_argument('--output', default='', type=str, metavar='PATH',
+                    help='path to output folder (default: none, current dir)')
 
 def validate(args):
     # might as well try to validate something
@@ -147,13 +146,12 @@ def validate(args):
 # 
     # Mehrdad: adding pruning right after model
     from DG_Prune import DG_Pruner, TaylorImportance, MagnitudeImportance, RigLImportance
-    dgPruner = None
-    if args.prune:
-        dgPruner = DG_Pruner()
-        model = dgPruner.swap_prunable_modules(model)
-        dgPruner.dump_sparsity_stat(model, epoch=0)
-        pruners = dgPruner.pruners_from_file('DG_Prune/lth_efficientnet_el.json')
-        hooks = dgPruner.add_custom_pruning(model, MagnitudeImportance)
+
+    dgPruner = DG_Pruner()
+    model = dgPruner.swap_prunable_modules(model)
+    dgPruner.dump_sparsity_stat(model, epoch=0)
+    dgPruner.sense_analyzers_from_file('DG_Prune/sense_efficientnet_es.json')
+    dgPruner.add_custom_pruning(model, MagnitudeImportance)
     #
 # 
     if args.num_classes is None:
@@ -162,12 +160,6 @@ def validate(args):
 
     if args.checkpoint:
         load_checkpoint(model, args.checkpoint, args.use_ema)
-
-    if args.prune:
-        model = dgPruner.strip_prunable_modules(model)
-        from timm.utils import get_state_dict
-        model.eval()
-        torch.save( get_state_dict(model), path.join( path.dirname(args.checkpoint), "stripped_model.pth" ) )
         
 
     param_count = sum([m.numel() for m in model.parameters()])
@@ -198,6 +190,9 @@ def validate(args):
         root=args.data, name=args.dataset, split=args.split,
         load_bytes=args.tf_preprocessing, class_map=args.class_map)
 
+    # Mehrdad
+    # dataset.parser.samples = [dataset.parser.samples[idx] for idx in range(1024)]
+    #
     if args.valid_labels:
         with open(args.valid_labels, 'r') as f:
             valid_labels = {int(line.rstrip()) for line in f}
@@ -224,6 +219,20 @@ def validate(args):
         pin_memory=args.pin_mem,
         tf_preprocessing=args.tf_preprocessing)
 
+    out_dir = output_dir(args.output, args.model, data_config['input_size'][-1], train_test = 'test')
+
+
+    write_header = True
+    while (not dgPruner.sense_done()):
+        eval_metrics = validate_once(model, loader, criterion, args, data_config, amp_autocast=amp_autocast, valid_labels=valid_labels, real_labels=real_labels)
+        dgPruner.update_summary(eval_metrics, os.path.join(out_dir, 'summary.csv'), write_header=write_header)
+        write_header = False
+        dgPruner.apply_sensitivity_step()
+
+    eval_metrics = validate_once(model, loader, criterion, args, data_config, amp_autocast=amp_autocast, valid_labels=valid_labels, real_labels=real_labels)
+
+
+def validate_once(model, loader, criterion, args, data_config, amp_autocast=suppress, valid_labels=None, real_labels=None):
     batch_time = AverageMeter()
     losses = AverageMeter()
     top1 = AverageMeter()
@@ -284,9 +293,7 @@ def validate(args):
     results = OrderedDict(
         top1=round(top1a, 4), top1_err=round(100 - top1a, 4),
         top5=round(top5a, 4), top5_err=round(100 - top5a, 4),
-        param_count=round(param_count / 1e6, 2),
         img_size=data_config['input_size'][-1],
-        cropt_pct=crop_pct,
         interpolation=data_config['interpolation'])
 
     _logger.info(' * Acc@1 {:.3f} ({:.3f}) Acc@5 {:.3f} ({:.3f})'.format(

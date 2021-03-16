@@ -1,0 +1,42 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Current File",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/sensitivity_eval.py",
+            // "program": "${workspaceFolder}/validate.py",
+            "args": [
+                // "/media/mehrdad/3dd9d6bb-3b3b-426f-b47f-a87ad0ad8559/ml-data/ImageNet/ILSVRC/Data/CLS-LOC", 
+                "/media/mehrdad/HDD/ml-data/ImageNet2012", 
+                "-j", "1",
+                "-b", "16", 
+                "--model", "efficientnet_es", 
+                "--amp", 
+                "--native-amp",
+                "--pretrained",
+                // "--sched", "cosine", 
+                // "--epochs", "30", 
+                // "--lr", "0.001", 
+                // "--remode", "pixel", 
+                // "--reprob", "0.6", 
+                // "--aug-splits", "3", 
+                // "--aa", "rand-m9-mstd0.5-inc1", 
+                // "--resplit", 
+                // "--split-bn", 
+                // "--jsd", 
+                // "--dist-bn", "reduce",
+                // "--warmup-epochs", "15",
+                // "--prune",
+                // "--resume", "output/train/20200920-234453-resnet50-224/last.pth.tar"
+                // "--checkpoint", "/home/mehrdad/wa/Forked/model_best.pth.tar"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        }
+    ]
+}
