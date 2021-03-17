@@ -110,6 +110,8 @@ parser.add_argument('--real-labels', default='', type=str, metavar='FILENAME',
 parser.add_argument('--valid-labels', default='', type=str, metavar='FILENAME',
                     help='Valid label indices txt file for validation of partial label space')
 parser.add_argument('--prune', action='store_true', help='use pruning')
+parser.add_argument('--export-onnx', action='store_true', help='export to onnx format')
+parser.add_argument('--save-stripped', action='store_true', help='saved stripped checkpoint')
 
 
 def validate(args):
@@ -163,11 +165,14 @@ def validate(args):
     if args.checkpoint:
         load_checkpoint(model, args.checkpoint, args.use_ema)
 
-    if args.prune:
+    if args.prune and args.save_stripped:
+        import torch
+        dgPruner.apply_mask_to_weight()
         model = dgPruner.strip_prunable_modules(model)
         from timm.utils import get_state_dict
         model.eval()
-        torch.save( get_state_dict(model), path.join( path.dirname(args.checkpoint), "stripped_model.pth" ) )
+        torch.save( get_state_dict(model), path.join( path.dirname(args.checkpoint), args.model + "_stripped.pth" ) )
+        return 
         
 
     param_count = sum([m.numel() for m in model.parameters()])
@@ -223,6 +228,15 @@ def validate(args):
         crop_pct=crop_pct,
         pin_memory=args.pin_mem,
         tf_preprocessing=args.tf_preprocessing)
+
+    # Mehrdad: ONNX
+    if args.export_onnx:
+        import torch.onnx
+        for image, _ in loader:
+            dummy_input = image[0].unsqueeze(0)
+            break
+        torch.onnx.export(model, dummy_input, args.model + ".onnx")
+        return
 
     batch_time = AverageMeter()
     losses = AverageMeter()
