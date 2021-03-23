@@ -29,7 +29,7 @@ import torchvision.utils
 from torch.nn.parallel import DistributedDataParallel as NativeDDP
 
 from timm.data import create_dataset, create_loader, resolve_data_config, Mixup, FastCollateMixup, AugMixDataset
-from timm.models import create_model, resume_checkpoint, load_checkpoint, convert_splitbn_model, model_parameters
+from timm.models import create_model, resume_checkpoint, resume_checkpoint_state_dict, load_checkpoint, convert_splitbn_model, model_parameters
 from timm.utils import *
 from timm.loss import LabelSmoothingCrossEntropy, SoftTargetCrossEntropy, JsdCrossEntropy
 from timm.optim import create_optimizer
@@ -597,7 +597,7 @@ def main():
                 if args.distributed and hasattr(loader_train.sampler, 'set_epoch'):
                     loader_train.sampler.set_epoch(epoch)
 
-                train_metrics = train_epoch(
+                train_metrics = train_one_epoch(
                     epoch, model, loader_train, optimizer, train_loss_fn, args,
                     lr_scheduler=lr_scheduler, saver=saver, output_dir=output_dir,
                     amp_autocast=amp_autocast, loss_scaler=loss_scaler, model_ema=model_ema, mixup_fn=mixup_fn, dgPruner=dgPruner)
