@@ -468,8 +468,8 @@ def main():
         args.dataset, root=args.data_dir, split=args.val_split, is_training=False, batch_size=args.batch_size)
 
     # Mehrdad
-    dataset_train.parser = dataset_train.parser[0:1024] # dataset_train.parser[idx] for idx in range(1024)]
-    dataset_eval.parser = dataset_eval.parser[0:1024] # [dataset_eval.parser[idx] for idx in range(1024)]
+    # dataset_train.parser = dataset_train.parser[0:1024] # dataset_train.parser[idx] for idx in range(1024)]
+    # dataset_eval.parser = dataset_eval.parser[0:1024] # [dataset_eval.parser[idx] for idx in range(1024)]
     #
 
     # setup mixup / cutmix
