@@ -354,7 +354,7 @@ def main():
         model = dgPruner.swap_prunable_modules(model)
         dgPruner.dump_sparsity_stat(model, epoch=0)
         pruners = dgPruner.pruners_from_file('DG_Prune/lth_efficientnet_es.json')
-        hooks = dgPruner.add_custom_pruning(model, RigLImportance)
+        hooks = dgPruner.add_custom_pruning(model, MagnitudeImportance)
     #
 
     if args.local_rank == 0:
@@ -468,8 +468,8 @@ def main():
         args.dataset, root=args.data_dir, split=args.val_split, is_training=False, batch_size=args.batch_size)
 
     # Mehrdad
-    # dataset_train.samples = [dataset_train.samples[idx] for idx in range(1024)]
-    # dataset_eval.samples = [dataset_eval.samples[idx] for idx in range(1024)]
+    dataset_train.samples = [dataset_train.samples[idx] for idx in range(1024)]
+    dataset_eval.samples = [dataset_eval.samples[idx] for idx in range(1024)]
     #
 
     # setup mixup / cutmix
