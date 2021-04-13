@@ -146,6 +146,17 @@ def validate(args):
         in_chans=3,
         global_pool=args.gp,
         scriptable=args.torchscript)
+
+    data_config = resolve_data_config(vars(args), model=model, use_test_size=True)
+    # Mehrdad: ONNX
+    if args.export_onnx:
+        import torch.onnx
+        from torch.autograd import Variable
+        model.eval()
+        dummy_input = Variable( torch.randn(1, data_config['input_size'][0], data_config['input_size'][1], data_config['input_size'][2]) )
+        torch.onnx.export(model, dummy_input, args.model + ".onnx")
+        return
+  
 # 
     # Mehrdad: adding pruning right after model
     from DG_Prune import DG_Pruner, TaylorImportance, MagnitudeImportance, RigLImportance
@@ -178,7 +189,6 @@ def validate(args):
     param_count = sum([m.numel() for m in model.parameters()])
     _logger.info('Model %s created, param count: %d' % (args.model, param_count))
 
-    data_config = resolve_data_config(vars(args), model=model, use_test_size=True)
     test_time_pool = False
     if not args.no_test_pool:
         model, test_time_pool = apply_test_time_pool(model, data_config, use_test_size=True)
@@ -228,15 +238,6 @@ def validate(args):
         crop_pct=crop_pct,
         pin_memory=args.pin_mem,
         tf_preprocessing=args.tf_preprocessing)
-
-    # Mehrdad: ONNX
-    if args.export_onnx:
-        import torch.onnx
-        for image, _ in loader:
-            dummy_input = image[0].unsqueeze(0)
-            break
-        torch.onnx.export(model, dummy_input, args.model + ".onnx")
-        return
 
     batch_time = AverageMeter()
     losses = AverageMeter()
