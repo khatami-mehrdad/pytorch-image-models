@@ -581,44 +581,53 @@ def main():
             return
 
         # Mehrdad: LTH
+        sparsity_dict = {}
+        lth_save_epoch = start_epoch - 1
         for layer_name, hook in hooks.items():
-            compute_apply_sense_sparsity(hook, 0.98, model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast)
-            for epoch in range(start_epoch, num_epochs):
-                lth_save_epoch = lth_save_epoch + 1
-                if args.distributed and hasattr(loader_train.sampler, 'set_epoch'):
-                    loader_train.sampler.set_epoch(epoch)
+            target_sparsity = compute_apply_sense_sparsity(hook, 0.98, model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast)
+            sparsity_dict[layer_name] = target_sparsity
+            _logger.info( "Pruning Layer {}, Sparsity = {}".format(layer_name, target_sparsity) )
+            if target_sparsity != 0:
+                for epoch in range(start_epoch, num_epochs):
+                    lth_save_epoch = lth_save_epoch + 1
+                    if args.distributed and hasattr(loader_train.sampler, 'set_epoch'):
+                        loader_train.sampler.set_epoch(epoch)
 
-                train_metrics = train_one_epoch(
-                    epoch, model, loader_train, optimizer, train_loss_fn, args,
-                    lr_scheduler=lr_scheduler, saver=saver, output_dir=output_dir,
-                    amp_autocast=amp_autocast, loss_scaler=loss_scaler, model_ema=model_ema, mixup_fn=mixup_fn, dgPruner=dgPruner)
+                    train_metrics = train_one_epoch(
+                        epoch, model, loader_train, optimizer, train_loss_fn, args,
+                        lr_scheduler=lr_scheduler, saver=saver, output_dir=output_dir,
+                        amp_autocast=amp_autocast, loss_scaler=loss_scaler, model_ema=model_ema, mixup_fn=mixup_fn, dgPruner=dgPruner)
 
-                if args.distributed and args.dist_bn in ('broadcast', 'reduce'):
-                    if args.local_rank == 0:
-                        _logger.info("Distributing BatchNorm running means and vars")
-                    distribute_bn(model, args.world_size, args.dist_bn == 'reduce')
-
-                eval_metrics = validate(model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast)
-
-                if model_ema is not None and not args.model_ema_force_cpu:
                     if args.distributed and args.dist_bn in ('broadcast', 'reduce'):
-                        distribute_bn(model_ema, args.world_size, args.dist_bn == 'reduce')
-                    ema_eval_metrics = validate(
-                        model_ema.module, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast, log_suffix=' (EMA)')
-                    eval_metrics = ema_eval_metrics
+                        if args.local_rank == 0:
+                            _logger.info("Distributing BatchNorm running means and vars")
+                        distribute_bn(model, args.world_size, args.dist_bn == 'reduce')
 
-                if lr_scheduler is not None:
-                    # step LR for next epoch
-                    lr_scheduler.step(epoch + 1, eval_metrics[eval_metric])
+                    eval_metrics = validate(model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast)
 
-                update_summary(
-                    epoch, train_metrics, eval_metrics, os.path.join(output_dir, 'summary.csv'),
-                    write_header=best_metric is None)
+                    if model_ema is not None and not args.model_ema_force_cpu:
+                        if args.distributed and args.dist_bn in ('broadcast', 'reduce'):
+                            distribute_bn(model_ema, args.world_size, args.dist_bn == 'reduce')
+                        ema_eval_metrics = validate(
+                            model_ema.module, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast, log_suffix=' (EMA)')
+                        eval_metrics = ema_eval_metrics
 
-                save_metric = eval_metrics[eval_metric]
-                if saver is not None:
-                    # save proper checkpoint with eval metric
-                    best_metric, best_epoch = saver.save_checkpoint(lth_save_epoch, metric=save_metric)
+                    if lr_scheduler is not None:
+                        # step LR for next epoch
+                        lr_scheduler.step(epoch + 1, eval_metrics[eval_metric])
+
+                    update_summary(
+                        epoch, train_metrics, eval_metrics, os.path.join(output_dir, 'summary.csv'),
+                        write_header=None, layer_name=layer_name)
+
+                    save_metric = eval_metrics[eval_metric]
+                    if saver is not None:
+                        # save proper checkpoint with eval metric
+                        best_metric, best_epoch = saver.save_checkpoint(lth_save_epoch, metric=save_metric)
+        import json
+        with open("sparsity.json", "w") as outfile:
+            json.dump(sparsity_dict, outfile, indent=4) 
+
 
     except KeyboardInterrupt:
         pass
@@ -735,18 +744,21 @@ def train_one_epoch(
 
 
 def compute_apply_sense_sparsity(hook, target_acc_perc, model, loader, loss_fn, args, amp_autocast=suppress, log_suffix=''):
-    results = validate(model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast)
+    results = validate(model, loader, loss_fn, args, amp_autocast=amp_autocast)
     acc_no_sparsity = results['top1'] * target_acc_perc
     target_sparsity = 0
     for sparsity in range(60, 90, 5):
-        hook.apply_sparsity( sparsity )
-        results = validate(model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast)
+        sparsity_flt = sparsity / 100
+        hook.apply_sparsity( sparsity_flt )
+        results = validate(model, loader, loss_fn, args, amp_autocast=amp_autocast)
+        # update_summary(0, results, results, 'test.csv', write_header=None, layer_name='test')
         if (results['top1'] < acc_no_sparsity):
             break
         else:
-            target_sparsity = sparsity
+            target_sparsity = sparsity_flt
 
     hook.apply_sparsity( target_sparsity )
+    return target_sparsity
     
 
 
