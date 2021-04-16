@@ -148,6 +148,14 @@ def validate(args):
         scriptable=args.torchscript)
 
     data_config = resolve_data_config(vars(args), model=model, use_test_size=True)
+
+    if args.num_classes is None:
+        assert hasattr(model, 'num_classes'), 'Model must have `num_classes` attr if not set on cmd line/config.'
+        args.num_classes = model.num_classes
+
+    if args.checkpoint:
+        load_checkpoint(model, args.checkpoint, args.use_ema)
+        
     # Mehrdad: ONNX
     if args.export_onnx:
         import torch.onnx
@@ -169,12 +177,6 @@ def validate(args):
         hooks = dgPruner.add_custom_pruning(model, MagnitudeImportance)
     #
 # 
-    if args.num_classes is None:
-        assert hasattr(model, 'num_classes'), 'Model must have `num_classes` attr if not set on cmd line/config.'
-        args.num_classes = model.num_classes
-
-    if args.checkpoint:
-        load_checkpoint(model, args.checkpoint, args.use_ema)
 
     if args.prune and args.save_stripped:
         import torch
