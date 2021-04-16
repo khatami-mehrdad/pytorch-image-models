@@ -35,8 +35,11 @@ def output_dir(output_path, model_name, input_size, train_test = 'train'):
     return output_dir
 
 
-def update_summary(epoch, train_metrics, eval_metrics, filename, write_header=False):
+def update_summary(epoch, train_metrics, eval_metrics, filename, write_header=False, layer_name=None):
     rowd = OrderedDict(epoch=epoch)
+    if (layer_name != None):
+        rowd.update( [('layer_name', layer_name)] )
+
     rowd.update([('train_' + k, v) for k, v in train_metrics.items()])
     rowd.update([('eval_' + k, v) for k, v in eval_metrics.items()])
     with open(filename, mode='a') as cf:
