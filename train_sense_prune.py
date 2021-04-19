@@ -587,6 +587,7 @@ def main():
             target_sparsity = compute_apply_sense_sparsity(hook, 0.98, model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast)
             sparsity_dict[layer_name] = target_sparsity
             _logger.info( "Pruning Layer {}, Sparsity = {}".format(layer_name, target_sparsity) )
+            dgPruner.dump_sparsity_stat(model, epoch=0)
             if target_sparsity != 0:
                 for epoch in range(start_epoch, num_epochs):
                     lth_save_epoch = lth_save_epoch + 1
