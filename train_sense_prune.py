@@ -584,10 +584,11 @@ def main():
         sparsity_dict = {}
         lth_save_epoch = start_epoch - 1
         for layer_name, hook in hooks.items():
-            target_sparsity = compute_apply_sense_sparsity(hook, 0.98, model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast)
-            sparsity_dict[layer_name] = target_sparsity
+            target_sparsity = compute_sense_sparsity(hook, 0.98, model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast)
             _logger.info( "Pruning Layer {}, Sparsity = {}".format(layer_name, target_sparsity) )
-            dgPruner.dump_sparsity_stat(model, epoch=0)
+            sparsity_dict[layer_name] = target_sparsity
+            hook.apply_sparsity( target_sparsity )
+            dgPruner.dump_sparsity_stat(model, output_dir=output_dir, epoch=lth_save_epoch+1)
             if target_sparsity != 0:
                 for epoch in range(start_epoch, num_epochs):
                     lth_save_epoch = lth_save_epoch + 1
@@ -744,7 +745,7 @@ def train_one_epoch(
     return OrderedDict([('loss', losses_m.avg)])
 
 
-def compute_apply_sense_sparsity(hook, target_acc_perc, model, loader, loss_fn, args, amp_autocast=suppress, log_suffix=''):
+def compute_sense_sparsity(hook, target_acc_perc, model, loader, loss_fn, args, amp_autocast=suppress, log_suffix=''):
     results = validate(model, loader, loss_fn, args, amp_autocast=amp_autocast)
     acc_no_sparsity = results['top1'] * target_acc_perc
     target_sparsity = 0
@@ -755,10 +756,8 @@ def compute_apply_sense_sparsity(hook, target_acc_perc, model, loader, loss_fn, 
         # update_summary(0, results, results, 'test.csv', write_header=None, layer_name='test')
         if (results['top1'] < acc_no_sparsity):
             break
-        else:
-            target_sparsity = sparsity_flt
+        target_sparsity = sparsity_flt
 
-    hook.apply_sparsity( target_sparsity )
     return target_sparsity
     
 
