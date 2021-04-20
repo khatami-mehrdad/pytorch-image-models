@@ -590,7 +590,7 @@ def main():
             sparsity_dict[layer_name] = target_sparsity
             if args.local_rank == 0:
                 _logger.info( "Pruning Layer {}, Sparsity = {}".format(layer_name, target_sparsity) )
-                with open("sparsity.json", "w") as outfile:
+                with open(os.path.join(output_dir, "sparsity.json"), "w") as outfile:
                     json.dump(sparsity_dict, outfile, indent=4) 
             dgPruner.dump_sparsity_stat(model, output_dir=output_dir, epoch=lth_save_epoch+1)
             if target_sparsity != 0:
