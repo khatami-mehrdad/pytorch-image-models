@@ -153,11 +153,11 @@ def validate(args):
         assert hasattr(model, 'num_classes'), 'Model must have `num_classes` attr if not set on cmd line/config.'
         args.num_classes = model.num_classes
 
-    if args.checkpoint:
-        load_checkpoint(model, args.checkpoint, args.use_ema)
-        
+
     # Mehrdad: ONNX
     if args.export_onnx:
+        if args.checkpoint:
+            load_checkpoint(model, args.checkpoint, args.use_ema)
         import torch.onnx
         from torch.autograd import Variable
         model.eval()
@@ -172,15 +172,18 @@ def validate(args):
     if args.prune:
         dgPruner = DG_Pruner()
         model = dgPruner.swap_prunable_modules(model)
-        dgPruner.dump_sparsity_stat(model, epoch=0)
         pruners = dgPruner.pruners_from_file('DG_Prune/lth_efficientnet_el.json')
         hooks = dgPruner.add_custom_pruning(model, MagnitudeImportance)
     #
 # 
 
+    if args.checkpoint:
+        load_checkpoint(model, args.checkpoint, args.use_ema)
+
     if args.prune and args.save_stripped:
         import torch
         dgPruner.apply_mask_to_weight()
+        dgPruner.dump_sparsity_stat(model)
         model = dgPruner.strip_prunable_modules(model)
         from timm.utils import get_state_dict
         model.eval()
