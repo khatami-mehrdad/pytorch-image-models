@@ -587,7 +587,8 @@ def main():
             target_sparsity = compute_sense_sparsity(hook, 0.98, model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast)
             _logger.info( "Pruning Layer {}, Sparsity = {}".format(layer_name, target_sparsity) )
             sparsity_dict[layer_name] = target_sparsity
-            hook.apply_sparsity( target_sparsity )
+            if target_sparsity != 0:
+                hook.apply_sparsity( target_sparsity )
             dgPruner.dump_sparsity_stat(model, output_dir=output_dir, epoch=lth_save_epoch+1)
             if target_sparsity != 0:
                 for epoch in range(start_epoch, num_epochs):
@@ -618,9 +619,10 @@ def main():
                         # step LR for next epoch
                         lr_scheduler.step(epoch + 1, eval_metrics[eval_metric])
 
-                    update_summary(
-                        epoch, train_metrics, eval_metrics, os.path.join(output_dir, 'summary.csv'),
-                        write_header=None, layer_name=layer_name)
+                    if args.local_rank == 0:
+                        update_summary(
+                            epoch, train_metrics, eval_metrics, os.path.join(output_dir, 'summary.csv'),
+                            write_header=None, layer_name=layer_name)
 
                     save_metric = eval_metrics[eval_metric]
                     if saver is not None:
