@@ -22,6 +22,7 @@ import logging
 from collections import OrderedDict
 from contextlib import suppress
 from datetime import datetime
+import json
 
 import torch
 import torch.nn as nn
@@ -585,8 +586,13 @@ def main():
         lth_save_epoch = start_epoch - 1
         for layer_name, hook in hooks.items():
             target_sparsity = compute_apply_sense_sparsity(hook, 0.98, model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast)
+            hook.apply_sparsity( target_sparsity )
             sparsity_dict[layer_name] = target_sparsity
-            _logger.info( "Pruning Layer {}, Sparsity = {}".format(layer_name, target_sparsity) )
+            if args.local_rank == 0:
+                _logger.info( "Pruning Layer {}, Sparsity = {}".format(layer_name, target_sparsity) )
+                with open(os.path.join(output_dir, "sparsity.json"), "w") as outfile:
+                    json.dump(sparsity_dict, outfile, indent=4) 
+            dgPruner.dump_sparsity_stat(model, output_dir=output_dir, epoch=lth_save_epoch+1)
             if target_sparsity != 0:
                 for epoch in range(start_epoch, num_epochs):
                     lth_save_epoch = lth_save_epoch + 1
@@ -616,17 +622,16 @@ def main():
                         # step LR for next epoch
                         lr_scheduler.step(epoch + 1, eval_metrics[eval_metric])
 
-                    update_summary(
-                        epoch, train_metrics, eval_metrics, os.path.join(output_dir, 'summary.csv'),
-                        write_header=None, layer_name=layer_name)
+                    if args.local_rank == 0:
+                        update_summary(
+                            epoch, train_metrics, eval_metrics, os.path.join(output_dir, 'summary.csv'),
+                            write_header=None, layer_name=layer_name)
 
                     save_metric = eval_metrics[eval_metric]
                     if saver is not None:
                         # save proper checkpoint with eval metric
                         best_metric, best_epoch = saver.save_checkpoint(lth_save_epoch, metric=save_metric)
-        import json
-        with open("sparsity.json", "w") as outfile:
-            json.dump(sparsity_dict, outfile, indent=4) 
+
 
 
     except KeyboardInterrupt:
@@ -754,8 +759,7 @@ def compute_apply_sense_sparsity(hook, target_acc_perc, model, loader, loss_fn, 
         # update_summary(0, results, results, 'test.csv', write_header=None, layer_name='test')
         if (results['top1'] < acc_no_sparsity):
             break
-        else:
-            target_sparsity = sparsity_flt
+        target_sparsity = sparsity_flt
 
     hook.apply_sparsity( target_sparsity )
     return target_sparsity
