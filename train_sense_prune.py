@@ -352,7 +352,7 @@ def main():
     dgPruner = DG_Pruner()
     model = dgPruner.swap_prunable_modules(model)
     dgPruner.dump_sparsity_stat(model, epoch=0)
-    hooks = dgPruner.add_custom_pruning(model, MagnitudeImportance)
+    hooks = dgPruner.add_custom_pruning(model, RigLImportance)
     #
 
     if args.local_rank == 0:
@@ -588,7 +588,7 @@ def main():
         sparsity_dict = {}
         lth_save_epoch = start_epoch - 1
         for layer_name, hook in hooks.items():
-            target_sparsity = compute_apply_sense_sparsity(hook, target_acc_perc=target_acc_perc, model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast)
+            target_sparsity = compute_apply_sense_sparsity(hook, target_acc_perc, model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast)
             starting_growth = target_sparsity * growth_perc
             sparsity_dict[layer_name] = target_sparsity
             if args.local_rank == 0:
