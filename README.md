@@ -23,6 +23,43 @@ I'm fortunate to be able to dedicate significant time and money of my own suppor
 
 ## What's New
 
+### April 13, 2021
+* Add Swin Transformer models and weights from https://github.com/microsoft/Swin-Transformer
+
+### April 12, 2021
+* Add ECA-NFNet-L1 (slimmed down F1 w/ SiLU, 41M params) trained with this code. 84% top-1 @ 320x320. Trained at 256x256.
+* Add EfficientNet-V2S model (unverified model definition) weights. 83.3 top-1 @ 288x288. Only trained single res 224. Working on progressive training.
+* Add ByoaNet model definition (Bring-your-own-attention) w/ SelfAttention block and corresponding SA/SA-like modules and model defs
+  * Lambda Networks - https://arxiv.org/abs/2102.08602
+  * Bottleneck Transformers - https://arxiv.org/abs/2101.11605
+  * Halo Nets - https://arxiv.org/abs/2103.12731
+* Adabelief optimizer contributed by Juntang Zhuang
+
+### April 1, 2021
+* Add snazzy `benchmark.py` script for bulk `timm` model benchmarking of train and/or inference
+* Add Pooling-based Vision Transformer (PiT) models (from https://github.com/naver-ai/pit)
+  * Merged distilled variant into main for torchscript compatibility
+  * Some `timm` cleanup/style tweaks and weights have hub download support
+* Cleanup Vision Transformer (ViT) models
+  * Merge distilled (DeiT) model into main so that torchscript can work
+  * Support updated weight init (defaults to old still) that closer matches original JAX impl (possibly better training from scratch)
+  * Separate hybrid model defs into different file and add several new model defs to fiddle with, support patch_size != 1 for hybrids
+  * Fix fine-tuning num_class changes (PiT and ViT) and pos_embed resizing (Vit) with distilled variants
+  * nn.Sequential for block stack (does not break downstream compat)
+* TnT (Transformer-in-Transformer) models contributed by author (from https://gitee.com/mindspore/mindspore/tree/master/model_zoo/research/cv/TNT)
+* Add RegNetY-160 weights from DeiT teacher model
+* Add new NFNet-L0 w/ SE attn (rename `nfnet_l0b`->`nfnet_l0`) weights 82.75 top-1 @ 288x288
+* Some fixes/improvements for TFDS dataset wrapper
+
+### March 17, 2021
+* Add new ECA-NFNet-L0 (rename `nfnet_l0c`->`eca_nfnet_l0`) weights trained by myself.
+  * 82.6 top-1 @ 288x288, 82.8 @ 320x320, trained at 224x224
+  * Uses SiLU activation, approx 2x faster than `dm_nfnet_f0` and 50% faster than `nfnet_f0s` w/ 1/3 param count
+* Integrate [Hugging Face model hub](https://huggingface.co/models) into timm create_model and default_cfg handling for pretrained weight and config sharing (more on this soon!)
+* Merge HardCoRe NAS models contributed by https://github.com/yoniaflalo
+* Merge PyTorch trained EfficientNet-EL and pruned ES/EL variants contributed by [DeGirum](https://github.com/DeGirum)
+
+
 ### March 7, 2021
 * First 0.4.x PyPi release w/ NFNets (& related), ByoB (GPU-Efficient, RepVGG, etc).
 * Change feature extraction for pre-activation nets (NFNets, ResNetV2) to return features before activation.
@@ -130,17 +167,6 @@ I'm fortunate to be able to dedicate significant time and money of my own suppor
 * EdgeTPU-M (`efficientnet_em`) model trained in PyTorch, 79.3 top-1
 * Pip release, doc updates pending a few more changes...
 
-### Sept 18, 2020
-* New ResNet 'D' weights. 72.7 (top-1) ResNet-18-D, 77.1 ResNet-34-D, 80.5 ResNet-50-D
-* Added a few untrained defs for other ResNet models (66D, 101D, 152D, 200/200D)
-
-### Sept 3, 2020
-* New weights
-  * Wide-ResNet50 - 81.5 top-1 (vs 78.5 torchvision)
-  * SEResNeXt50-32x4d - 81.3 top-1 (vs 79.1 cadene)
-* Support for native Torch AMP and channels_last memory format added to train/validate scripts (`--channels-last`, `--native-amp` vs `--apex-amp`)
-* Models tested with channels_last on latest NGC 20.08 container. AdaptiveAvgPool in attn layers changed to mean((2,3)) to work around bug with NHWC kernel.
-
 
 ## Introduction
 
@@ -155,6 +181,7 @@ All model architecture families include variants with pretrained weights. There 
 A full version of the list below with source links can be found in the [documentation](https://rwightman.github.io/pytorch-image-models/models/).
 
 * Big Transfer ResNetV2 (BiT) - https://arxiv.org/abs/1912.11370
+* Bottleneck Transformers - https://arxiv.org/abs/2101.11605
 * CspNet (Cross-Stage Partial Networks) - https://arxiv.org/abs/1911.11929
 * DeiT (Vision Transformer) - https://arxiv.org/abs/2012.12877
 * DenseNet - https://arxiv.org/abs/1608.06993
@@ -171,14 +198,18 @@ A full version of the list below with source links can be found in the [document
     * MobileNet-V2 - https://arxiv.org/abs/1801.04381
     * Single-Path NAS - https://arxiv.org/abs/1904.02877
 * GPU-Efficient Networks - https://arxiv.org/abs/2006.14090
+* Halo Nets - https://arxiv.org/abs/2103.12731
+* HardCoRe-NAS - https://arxiv.org/abs/2102.11646
 * HRNet - https://arxiv.org/abs/1908.07919
 * Inception-V3 - https://arxiv.org/abs/1512.00567
 * Inception-ResNet-V2 and Inception-V4 - https://arxiv.org/abs/1602.07261
+* Lambda Networks - https://arxiv.org/abs/2102.08602
 * MobileNet-V3 (MBConvNet w/ Efficient Head) - https://arxiv.org/abs/1905.02244
 * NASNet-A - https://arxiv.org/abs/1707.07012
 * NFNet-F - https://arxiv.org/abs/2102.06171
 * NF-RegNet / NF-ResNet - https://arxiv.org/abs/2101.08692
 * PNasNet - https://arxiv.org/abs/1712.00559
+* Pooling-based Vision Transformer (PiT) - https://arxiv.org/abs/2103.16302
 * RegNet - https://arxiv.org/abs/2003.13678
 * RepVGG - https://arxiv.org/abs/2101.03697
 * ResNet/ResNeXt
@@ -194,6 +225,8 @@ A full version of the list below with source links can be found in the [document
 * ReXNet - https://arxiv.org/abs/2007.00992
 * SelecSLS - https://arxiv.org/abs/1907.00837
 * Selective Kernel Networks - https://arxiv.org/abs/1903.06586
+* Swin Transformer - https://arxiv.org/abs/2103.14030
+* Transformer-iN-Transformer (TNT) - https://arxiv.org/abs/2103.00112
 * TResNet - https://arxiv.org/abs/2003.13630
 * Vision Transformer - https://arxiv.org/abs/2010.11929
 * VovNet V2 and V1 - https://arxiv.org/abs/1911.06667
