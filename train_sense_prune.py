@@ -752,7 +752,7 @@ def compute_apply_sense_sparsity(hook, target_acc_perc, model, loader, loss_fn, 
     results = validate(model, loader, loss_fn, args, amp_autocast=amp_autocast)
     acc_no_sparsity = results['top1'] * target_acc_perc
     target_sparsity = 0
-    for sparsity in range(60, 90, 5):
+    for sparsity in range(60, 91, 5):
         sparsity_flt = sparsity / 100
         hook.apply_sparsity( sparsity_flt )
         results = validate(model, loader, loss_fn, args, amp_autocast=amp_autocast)
