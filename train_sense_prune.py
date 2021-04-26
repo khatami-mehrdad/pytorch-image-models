@@ -767,7 +767,7 @@ def compute_sense_sparsity(hook, target_acc_perc, model, loader, loss_fn, args, 
             break
         target_sparsity = sparsity_flt
 
-    # hook.apply_sparsity( target_sparsity )
+    hook.apply_sparsity( 0 ) # removing the mask
     return target_sparsity
     
 
