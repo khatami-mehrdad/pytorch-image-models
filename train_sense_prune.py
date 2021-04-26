@@ -352,7 +352,7 @@ def main():
     dgPruner = DG_Pruner()
     model = dgPruner.swap_prunable_modules(model)
     dgPruner.dump_sparsity_stat(model, epoch=0)
-    hooks = dgPruner.add_custom_pruning(model, RigLImportance)
+    hooks = dgPruner.add_custom_pruning(model, MagnitudeImportance)
     #
 
     if args.local_rank == 0:
@@ -583,16 +583,13 @@ def main():
 
         # Mehrdad: LTH
         import math
-        cosAnneal = lambda epoch, epochs, end, start : end - (end - start) * ( (1 + math.cos(math.pi * epoch / epochs)) / 2 )
-        x = []
-        for i in range(21)
-            x.append(cosAnneal(i, 20, 0.9, 0.5))
-         
+        cosAnneal = lambda epoch, epochs, end, start : start - (start - end) * ( math.sin( (math.pi / 2) * (epoch / epochs) ) )
+       
         target_acc_perc = 0.98
         sparsity_dict = {}
         lth_save_epoch = start_epoch - 1
         for layer_name, hook in hooks.items():
-            target_sparsity = compute_apply_sense_sparsity(hook, target_acc_perc, model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast)
+            target_sparsity = compute_sense_sparsity(hook, target_acc_perc, model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast)
             sparsity_dict[layer_name] = target_sparsity
             if args.local_rank == 0:
                 _logger.info( "Pruning Layer {}, Sparsity = {}".format(layer_name, target_sparsity) )
@@ -601,10 +598,8 @@ def main():
             if target_sparsity != 0:
                 for epoch in range(start_epoch, num_epochs):
                     lth_save_epoch = lth_save_epoch + 1
-                    # Mehrdad: Growth
-                    hook.apply_sparsity( target_sparsity )
-                    if (growth > 0):
-                        hook.apply_growth( growth )
+                    sparsity = target_sparsity if epoch > 20 else cosAnneal(epoch, 20, target_sparsity, 0.5)
+                    hook.apply_sparsity( sparsity )
                     dgPruner.dump_sparsity_stat(model, output_dir=output_dir, epoch=lth_save_epoch+1)
                     #
                     if args.distributed and hasattr(loader_train.sampler, 'set_epoch'):
@@ -759,7 +754,7 @@ def train_one_epoch(
     return OrderedDict([('loss', losses_m.avg)])
 
 
-def compute_apply_sense_sparsity(hook, target_acc_perc, model, loader, loss_fn, args, amp_autocast=suppress, log_suffix=''):
+def compute_sense_sparsity(hook, target_acc_perc, model, loader, loss_fn, args, amp_autocast=suppress, log_suffix=''):
     results = validate(model, loader, loss_fn, args, amp_autocast=amp_autocast)
     acc_no_sparsity = results['top1'] * target_acc_perc
     target_sparsity = 0
@@ -772,7 +767,7 @@ def compute_apply_sense_sparsity(hook, target_acc_perc, model, loader, loss_fn, 
             break
         target_sparsity = sparsity_flt
 
-    hook.apply_sparsity( target_sparsity )
+    # hook.apply_sparsity( target_sparsity )
     return target_sparsity
     
 
