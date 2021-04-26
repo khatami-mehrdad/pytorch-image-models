@@ -582,14 +582,17 @@ def main():
             return
 
         # Mehrdad: LTH
+        import math
+        cosAnneal = lambda epoch, epochs, end, start : end - (end - start) * ( (1 + math.cos(math.pi * epoch / epochs)) / 2 )
+        x = []
+        for i in range(21)
+            x.append(cosAnneal(i, 20, 0.9, 0.5))
+         
         target_acc_perc = 0.98
-        growth_perc = 0.1
-        growth_epochs = round(0.7 * num_epochs)
         sparsity_dict = {}
         lth_save_epoch = start_epoch - 1
         for layer_name, hook in hooks.items():
             target_sparsity = compute_apply_sense_sparsity(hook, target_acc_perc, model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast)
-            starting_growth = target_sparsity * growth_perc
             sparsity_dict[layer_name] = target_sparsity
             if args.local_rank == 0:
                 _logger.info( "Pruning Layer {}, Sparsity = {}".format(layer_name, target_sparsity) )
@@ -599,11 +602,7 @@ def main():
                 for epoch in range(start_epoch, num_epochs):
                     lth_save_epoch = lth_save_epoch + 1
                     # Mehrdad: Growth
-                    growth = starting_growth * (1 - epoch/growth_epochs)
-                    if (growth < 0 or lth_save_epoch == epoch):
-                        growth = 0
-                    hook.apply_mask_to_weight()
-                    hook.apply_sparsity( target_sparsity + growth )
+                    hook.apply_sparsity( target_sparsity )
                     if (growth > 0):
                         hook.apply_growth( growth )
                     dgPruner.dump_sparsity_stat(model, output_dir=output_dir, epoch=lth_save_epoch+1)
