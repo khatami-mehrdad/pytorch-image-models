@@ -264,7 +264,6 @@ parser.add_argument('--tta', type=int, default=0, metavar='N',
 parser.add_argument("--local_rank", default=0, type=int)
 parser.add_argument('--use-multi-epochs-loader', action='store_true', default=False,
                     help='use the multi-epochs-loader to save time at the beginning of every epoch')
-parser.add_argument('--prune', action='store_true', help='use pruning')
 parser.add_argument('--test-only', action='store_true', help='use pruning')
 parser.add_argument('--torchscript', dest='torchscript', action='store_true',
                     help='convert model torchscript for inference')
@@ -348,13 +347,11 @@ def main():
 
     # Mehrdad: adding pruning right after model
     from DG_Prune import DG_Pruner, TaylorImportance, MagnitudeImportance, RigLImportance
-    dgPruner = None
-    if args.prune:
-        dgPruner = DG_Pruner()
-        model = dgPruner.swap_prunable_modules(model)
-        dgPruner.dump_sparsity_stat(model, epoch=0)
-        pruners = dgPruner.pruners_from_file('DG_Prune/lth_efficientnet_es_75.json')
-        hooks = dgPruner.add_custom_pruning(model, MagnitudeImportance)
+    dgPruner = DG_Pruner()
+    model = dgPruner.swap_prunable_modules(model)
+    dgPruner.dump_sparsity_stat(model, epoch=0)
+    pruners = dgPruner.pruners_from_file('DG_Prune/lth_efficientnet_es_75.json')
+    hooks = dgPruner.add_custom_pruning(model, MagnitudeImportance)
     #
 
     if args.local_rank == 0:
@@ -737,13 +734,6 @@ def train_one_epoch(
 
         end = time.time()
         # end for
-
-        # Mehrdad
-        # if ( args.prune and ( (batch_idx % dgPruner.num_iter_per_update( len(loader) ) ) == 0) ):
-        #     dgPruner.dump_growth_stat(output_dir, epoch)
-        #     dgPruner.prune_n_reset( epoch + batch_idx / len(loader) )
-        #     dgPruner.dump_sparsity_stat(model, output_dir, epoch)
-        # 
 
     if hasattr(optimizer, 'sync_lookahead'):
         optimizer.sync_lookahead()
