@@ -150,7 +150,12 @@ def validate(args):
     dgPruner = DG_Pruner()
     model = dgPruner.swap_prunable_modules(model)
     dgPruner.dump_sparsity_stat(model, epoch=0)
-    dgPruner.sense_analyzers_from_file('DG_Prune/sense_efficientnet_es.json')
+    layer_names = dgPruner.get_prunable_module_names(model)
+    sense_analyzer_dict = {}
+    sense_analyzer_dict['sense0'] = {'class': 'Linear', 'starting_sparsity':0.6, 'final_sparsity':0.95, 'step_size':0.05, 'layer_names':layer_names }
+
+    # dgPruner.sense_analyzers_from_file('DG_Prune/sense_efficientnet_es.json')
+    dgPruner.sense_analyzers_from_dict(sense_analyzer_dict)
     dgPruner.add_custom_pruning(model, MagnitudeImportance)
     #
 # 
