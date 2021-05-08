@@ -231,7 +231,8 @@ def validate(args):
     write_header = True
     while (not dgPruner.sense_done()):
         eval_metrics = validate_once(model, loader, criterion, args, data_config, amp_autocast=amp_autocast, valid_labels=valid_labels, real_labels=real_labels)
-        dgPruner.update_summary(eval_metrics, os.path.join(out_dir, 'summary.csv'), write_header=write_header)
+        if args.local_rank == 0:
+            dgPruner.update_summary(eval_metrics, os.path.join(out_dir, 'summary.csv'), write_header=write_header)
         write_header = False
         dgPruner.apply_sensitivity_step()
 
