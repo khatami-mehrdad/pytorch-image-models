@@ -110,6 +110,7 @@ parser.add_argument('--valid-labels', default='', type=str, metavar='FILENAME',
                     help='Valid label indices txt file for validation of partial label space')
 parser.add_argument('--output', default='', type=str, metavar='PATH',
                     help='path to output folder (default: none, current dir)')
+parser.add_argument("--local_rank", default=0, type=int)
 
 def validate(args):
     # might as well try to validate something
