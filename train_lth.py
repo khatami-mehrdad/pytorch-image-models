@@ -264,7 +264,6 @@ parser.add_argument('--tta', type=int, default=0, metavar='N',
 parser.add_argument("--local_rank", default=0, type=int)
 parser.add_argument('--use-multi-epochs-loader', action='store_true', default=False,
                     help='use the multi-epochs-loader to save time at the beginning of every epoch')
-parser.add_argument('--prune', action='store_true', help='use pruning')
 parser.add_argument('--test-only', action='store_true', help='use pruning')
 parser.add_argument('--torchscript', dest='torchscript', action='store_true',
                     help='convert model torchscript for inference')
@@ -348,13 +347,11 @@ def main():
 
     # Mehrdad: adding pruning right after model
     from DG_Prune import DG_Pruner, TaylorImportance, MagnitudeImportance, RigLImportance
-    dgPruner = None
-    if args.prune:
-        dgPruner = DG_Pruner()
-        model = dgPruner.swap_prunable_modules(model)
-        dgPruner.dump_sparsity_stat(model, epoch=0)
-        pruners = dgPruner.pruners_from_file('DG_Prune/lth_efficientnet_es.json')
-        hooks = dgPruner.add_custom_pruning(model, MagnitudeImportance)
+    dgPruner = DG_Pruner()
+    model = dgPruner.swap_prunable_modules(model)
+    dgPruner.dump_sparsity_stat(model, epoch=0)
+    pruners = dgPruner.pruners_from_file('DG_Prune/lth_resnet50d.json')
+    hooks = dgPruner.add_custom_pruning(model, MagnitudeImportance)
     #
 
     if args.local_rank == 0:
@@ -555,7 +552,7 @@ def main():
     eval_metric = args.eval_metric
     best_metric = None
     best_epoch = None
-    saver = None
+    saver = []
     
     # Mehrdad : Add pruner_saver
     output_dir = ''
@@ -571,10 +568,14 @@ def main():
         model=model, optimizer=optimizer, args=args, model_ema=model_ema, amp_scaler=loss_scaler,
         checkpoint_dir=output_dir, recovery_dir=output_dir, decreasing=decreasing)
     # 
+    lth_num_stages = dgPruner.num_stages()
     if args.local_rank == 0:
-        saver = CheckpointSaver(
-            model=model, optimizer=optimizer, args=args, model_ema=model_ema, amp_scaler=loss_scaler,
-            checkpoint_dir=output_dir, recovery_dir=output_dir, decreasing=decreasing, max_history=args.checkpoint_hist)
+        for lth_stage in range(0, lth_num_stages + 1):
+                saver.append( 
+                    CheckpointSaver(
+                        model=model, optimizer=optimizer, args=args, model_ema=model_ema, amp_scaler=loss_scaler, checkpoint_prefix='lth{}_checkpoint'.format(lth_stage),
+                        checkpoint_dir=output_dir, recovery_dir=output_dir, decreasing=decreasing, max_history=args.checkpoint_hist)
+                )
         with open(os.path.join(output_dir, 'args.yaml'), 'w') as f:
             f.write(args_text)
 
@@ -585,13 +586,14 @@ def main():
 
         # Mehrdad: LTH
         lth_save_epoch = start_epoch - 1
-        lth_num_stages = dgPruner.num_stages() if dgPruner else 0
         for lth_stage in range(0, lth_num_stages + 1):
             if (lth_stage != 0):
                 checkpoint = dgPruner.rewind_masked_checkpoint('state_dict')
                 start_epoch = resume_checkpoint_state_dict(unwrap_model(model), checkpoint, optimizer, loss_scaler)
-                dgPruner.dump_sparsity_stat(model, output_dir, lth_stage * 10000)
-        
+                dgPruner.dump_sparsity_stat(model, output_dir, lth_stage * 10000) 
+
+            lth_saver = saver[lth_stage] if args.local_rank == 0 else None
+
             for epoch in range(start_epoch, num_epochs):
                 lth_save_epoch = lth_save_epoch + 1
                 if args.distributed and hasattr(loader_train.sampler, 'set_epoch'):
@@ -599,7 +601,7 @@ def main():
 
                 train_metrics = train_one_epoch(
                     epoch, model, loader_train, optimizer, train_loss_fn, args,
-                    lr_scheduler=lr_scheduler, saver=saver, output_dir=output_dir,
+                    lr_scheduler=lr_scheduler, saver=lth_saver, output_dir=output_dir,
                     amp_autocast=amp_autocast, loss_scaler=loss_scaler, model_ema=model_ema, mixup_fn=mixup_fn, dgPruner=dgPruner)
 
                 if args.distributed and args.dist_bn in ('broadcast', 'reduce'):
@@ -625,23 +627,22 @@ def main():
                     write_header=best_metric is None)
 
                 save_metric = eval_metrics[eval_metric]
-                if saver is not None:
+                if lth_saver is not None:
                     # save proper checkpoint with eval metric
-                    best_metric, best_epoch = saver.save_checkpoint(lth_save_epoch, metric=save_metric)
+                    best_metric, best_epoch = lth_saver.save_checkpoint(lth_save_epoch, metric=save_metric)
                                         # lth saving checkpoints , dgPruner
-                if (args.prune):
-                    if (epoch == num_epochs - 1):
-                        dgPruner.prune_n_reset( epoch )
-                        dgPruner.dump_sparsity_stat(model, output_dir, lth_save_epoch)
-                        dgPruner.apply_mask_to_weight()
-                    if (lth_stage == 0) and (epoch == dgPruner.rewind_epoch(num_epochs)):
-                        checkpoint = pruner_saver.gen_state_dict(epoch, metric=save_metric)
-                        dgPruner.save_rewind_checkpoint(checkpoint)
-                        _logger.info('save rewind checkpoint')
-                    if (epoch == num_epochs - 1):
-                        checkpoint = pruner_saver.gen_state_dict(epoch, metric=save_metric)
-                        dgPruner.save_final_checkpoint(checkpoint)
-                        _logger.info('save final checkpoint')
+                if (epoch == num_epochs - 1):
+                    dgPruner.prune_n_reset( epoch )
+                    dgPruner.dump_sparsity_stat(model, output_dir, lth_save_epoch)
+                    dgPruner.apply_mask_to_weight()
+                if (lth_stage == 0) and (epoch == dgPruner.rewind_epoch(num_epochs)):
+                    checkpoint = pruner_saver.gen_state_dict(epoch, metric=save_metric)
+                    dgPruner.save_rewind_checkpoint(checkpoint)
+                    _logger.info('save rewind checkpoint')
+                if (epoch == num_epochs - 1):
+                    checkpoint = pruner_saver.gen_state_dict(epoch, metric=save_metric)
+                    dgPruner.save_final_checkpoint(checkpoint)
+                    _logger.info('save final checkpoint')
 
 
     except KeyboardInterrupt:
