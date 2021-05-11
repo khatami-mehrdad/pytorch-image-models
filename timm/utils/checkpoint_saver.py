@@ -62,8 +62,8 @@ class CheckpointSaver:
 
     def save_checkpoint(self, epoch, metric=None):
         assert epoch >= 0
-        tmp_save_path = os.path.join(self.checkpoint_dir, 'tmp' + self.extension)
-        last_save_path = os.path.join(self.checkpoint_dir, 'last' + self.extension)
+        tmp_save_path = os.path.join(self.checkpoint_dir, self.checkpoint_prefix + 'tmp' + self.extension)
+        last_save_path = os.path.join(self.checkpoint_dir, self.checkpoint_prefix + 'last' + self.extension)
         self._save(tmp_save_path, epoch, metric)
         if os.path.exists(last_save_path):
             os.unlink(last_save_path)  # required for Windows support.
@@ -89,7 +89,7 @@ class CheckpointSaver:
             if metric is not None and (self.best_metric is None or self.cmp(metric, self.best_metric)):
                 self.best_epoch = epoch
                 self.best_metric = metric
-                best_save_path = os.path.join(self.checkpoint_dir, 'model_best' + self.extension)
+                best_save_path = os.path.join(self.checkpoint_dir, 'model_best' + self.checkpoint_prefix + self.extension)
                 if os.path.exists(best_save_path):
                     os.unlink(best_save_path)
                 os.link(last_save_path, best_save_path)
