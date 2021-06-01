@@ -29,12 +29,13 @@ import torchvision.utils
 from torch.nn.parallel import DistributedDataParallel as NativeDDP
 
 from timm.data import create_dataset, create_loader, resolve_data_config, Mixup, FastCollateMixup, AugMixDataset
-from timm.models import create_model, resume_checkpoint, load_checkpoint, convert_splitbn_model, model_parameters
+from timm.models import create_model, safe_model_name, resume_checkpoint, load_checkpoint,\
+    convert_splitbn_model, model_parameters
 from timm.utils import *
 from timm.loss import LabelSmoothingCrossEntropy, SoftTargetCrossEntropy, JsdCrossEntropy
-from timm.optim import create_optimizer
+from timm.optim import create_optimizer_v2, optimizer_kwargs
 from timm.scheduler import create_scheduler
-from timm.utils import ApexScaler, NativeScaler, unwrap_model
+from timm.utils import ApexScaler, NativeScaler
 
 try:
     from apex import amp
@@ -50,6 +51,12 @@ try:
         has_native_amp = True
 except AttributeError:
     pass
+
+try:
+    import wandb
+    has_wandb = True
+except ImportError: 
+    has_wandb = False
 
 torch.backends.cudnn.benchmark = True
 _logger = logging.getLogger('train')
@@ -141,6 +148,8 @@ parser.add_argument('--min-lr', type=float, default=1e-5, metavar='LR',
                     help='lower lr bound for cyclic schedulers that hit 0 (1e-5)')
 parser.add_argument('--epochs', type=int, default=200, metavar='N',
                     help='number of epochs to train (default: 2)')
+parser.add_argument('--epoch-repeats', type=float, default=0., metavar='N',
+                    help='epoch repeat multiplier (number of times to repeat dataset epoch per train epoch).')
 parser.add_argument('--start-epoch', default=None, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
 parser.add_argument('--decay-epochs', type=float, default=30, metavar='N',
@@ -257,6 +266,8 @@ parser.add_argument('--no-prefetcher', action='store_true', default=False,
                     help='disable fast prefetcher')
 parser.add_argument('--output', default='', type=str, metavar='PATH',
                     help='path to output folder (default: none, current dir)')
+parser.add_argument('--experiment', default='', type=str, metavar='NAME',
+                    help='name of train experiment, name of sub-folder for output')
 parser.add_argument('--eval-metric', default='top1', type=str, metavar='EVAL_METRIC',
                     help='Best metric (default: "top1"')
 parser.add_argument('--tta', type=int, default=0, metavar='N',
@@ -264,10 +275,10 @@ parser.add_argument('--tta', type=int, default=0, metavar='N',
 parser.add_argument("--local_rank", default=0, type=int)
 parser.add_argument('--use-multi-epochs-loader', action='store_true', default=False,
                     help='use the multi-epochs-loader to save time at the beginning of every epoch')
-parser.add_argument('--prune', action='store_true', help='use pruning')
-parser.add_argument('--test-only', action='store_true', help='use pruning')
 parser.add_argument('--torchscript', dest='torchscript', action='store_true',
                     help='convert model torchscript for inference')
+parser.add_argument('--log-wandb', action='store_true', default=False,
+                    help='log training and validation metrics to wandb')
 
 
 def _parse_args():
@@ -290,7 +301,14 @@ def _parse_args():
 def main():
     setup_default_logging()
     args, args_text = _parse_args()
-
+    
+    if args.log_wandb:
+        if has_wandb:
+            wandb.init(project=args.experiment, config=args)
+        else: 
+            _logger.warning("You've requested to log metrics to wandb but package not found. "
+                            "Metrics not being logged to wandb, try `pip install wandb`")
+             
     args.prefetcher = not args.no_prefetcher
     args.distributed = False
     if 'WORLD_SIZE' in os.environ:
@@ -326,7 +344,7 @@ def main():
         _logger.warning("Neither APEX or native Torch AMP is available, using float32. "
                         "Install NVIDA apex or upgrade to PyTorch 1.6")
 
-    torch.manual_seed(args.seed + args.rank)
+    random_seed(args.seed, args.rank)
 
     model = create_model(
         args.model,
@@ -346,20 +364,9 @@ def main():
         assert hasattr(model, 'num_classes'), 'Model must have `num_classes` attr if not set on cmd line/config.'
         args.num_classes = model.num_classes  # FIXME handle model default vs config num_classes more elegantly
 
-    # Mehrdad: adding pruning right after model
-    from DG_Prune import DG_Pruner, TaylorImportance, MagnitudeImportance, RigLImportance
-    dgPruner = None
-    if args.prune:
-        dgPruner = DG_Pruner()
-        model = dgPruner.swap_prunable_modules(model)
-        dgPruner.dump_sparsity_stat(model, epoch=0)
-        pruners = dgPruner.pruners_from_file('DG_Prune/lth_efficientnet_es.json')
-        hooks = dgPruner.add_custom_pruning(model, MagnitudeImportance)
-    #
-
     if args.local_rank == 0:
-        _logger.info('Model %s created, param count: %d' %
-                     (args.model, sum([m.numel() for m in model.parameters()])))
+        _logger.info(
+            f'Model {safe_model_name(args.model)} created, param count:{sum([m.numel() for m in model.parameters()])}')
 
     data_config = resolve_data_config(vars(args), model=model, verbose=args.local_rank == 0)
 
@@ -397,7 +404,7 @@ def main():
         assert not args.sync_bn, 'Cannot use SyncBatchNorm with torchscripted model'
         model = torch.jit.script(model)
 
-    optimizer = create_optimizer(args, model)
+    optimizer = create_optimizer_v2(model, **optimizer_kwargs(cfg=args))
 
     # setup automatic mixed-precision (AMP) loss scaling and op casting
     amp_autocast = suppress  # do nothing
@@ -463,14 +470,11 @@ def main():
 
     # create the train and eval datasets
     dataset_train = create_dataset(
-        args.dataset, root=args.data_dir, split=args.train_split, is_training=True, batch_size=args.batch_size)
+        args.dataset,
+        root=args.data_dir, split=args.train_split, is_training=True,
+        batch_size=args.batch_size, repeats=args.epoch_repeats)
     dataset_eval = create_dataset(
         args.dataset, root=args.data_dir, split=args.val_split, is_training=False, batch_size=args.batch_size)
-
-    # Mehrdad
-    dataset_train.samples = [dataset_train.samples[idx] for idx in range(1024)]
-    dataset_eval.samples = [dataset_eval.samples[idx] for idx in range(1024)]
-    #
 
     # setup mixup / cutmix
     collate_fn = None
@@ -556,22 +560,18 @@ def main():
     best_metric = None
     best_epoch = None
     saver = None
-    
-    # Mehrdad : Add pruner_saver
-    output_dir = ''
-    output_base = args.output if args.output else './output'
-    exp_name = '-'.join([
-        datetime.now().strftime("%Y%m%d-%H%M%S"),
-        args.model,
-        str(data_config['input_size'][-1])
-    ])
-    output_dir = get_outdir(output_base, 'train', exp_name)
-    decreasing = True if eval_metric == 'loss' else False
-    pruner_saver = CheckpointSaver(
-        model=model, optimizer=optimizer, args=args, model_ema=model_ema, amp_scaler=loss_scaler,
-        checkpoint_dir=output_dir, recovery_dir=output_dir, decreasing=decreasing)
-    # 
+    output_dir = None
     if args.local_rank == 0:
+        if args.experiment:
+            exp_name = args.experiment
+        else:
+            exp_name = '-'.join([
+                datetime.now().strftime("%Y%m%d-%H%M%S"),
+                safe_model_name(args.model),
+                str(data_config['input_size'][-1])
+            ])
+        output_dir = get_outdir(args.output if args.output else './output/train', exp_name)
+        decreasing = True if eval_metric == 'loss' else False
         saver = CheckpointSaver(
             model=model, optimizer=optimizer, args=args, model_ema=model_ema, amp_scaler=loss_scaler,
             checkpoint_dir=output_dir, recovery_dir=output_dir, decreasing=decreasing, max_history=args.checkpoint_hist)
@@ -579,70 +579,42 @@ def main():
             f.write(args_text)
 
     try:
-        if args.test_only:
-            eval_metrics = validate(model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast, output_dir=output_dir, dgPruner=dgPruner)
-            return
+        for epoch in range(start_epoch, num_epochs):
+            if args.distributed and hasattr(loader_train.sampler, 'set_epoch'):
+                loader_train.sampler.set_epoch(epoch)
 
-        # Mehrdad: LTH
-        lth_save_epoch = start_epoch - 1
-        lth_num_stages = dgPruner.num_stages() if dgPruner else 0
-        for lth_stage in range(0, lth_num_stages + 1):
-            if (lth_stage != 0):
-                checkpoint = dgPruner.rewind_masked_checkpoint('state_dict')
-                start_epoch = resume_checkpoint_state_dict(unwrap_model(model), checkpoint, optimizer, loss_scaler)
-                dgPruner.dump_sparsity_stat(model, output_dir, lth_stage * 10000)
-        
-            for epoch in range(start_epoch, num_epochs):
-                lth_save_epoch = lth_save_epoch + 1
-                if args.distributed and hasattr(loader_train.sampler, 'set_epoch'):
-                    loader_train.sampler.set_epoch(epoch)
+            train_metrics = train_one_epoch(
+                epoch, model, loader_train, optimizer, train_loss_fn, args,
+                lr_scheduler=lr_scheduler, saver=saver, output_dir=output_dir,
+                amp_autocast=amp_autocast, loss_scaler=loss_scaler, model_ema=model_ema, mixup_fn=mixup_fn)
 
-                train_metrics = train_epoch(
-                    epoch, model, loader_train, optimizer, train_loss_fn, args,
-                    lr_scheduler=lr_scheduler, saver=saver, output_dir=output_dir,
-                    amp_autocast=amp_autocast, loss_scaler=loss_scaler, model_ema=model_ema, mixup_fn=mixup_fn, dgPruner=dgPruner)
+            if args.distributed and args.dist_bn in ('broadcast', 'reduce'):
+                if args.local_rank == 0:
+                    _logger.info("Distributing BatchNorm running means and vars")
+                distribute_bn(model, args.world_size, args.dist_bn == 'reduce')
 
+            eval_metrics = validate(model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast)
+
+            if model_ema is not None and not args.model_ema_force_cpu:
                 if args.distributed and args.dist_bn in ('broadcast', 'reduce'):
-                    if args.local_rank == 0:
-                        _logger.info("Distributing BatchNorm running means and vars")
-                    distribute_bn(model, args.world_size, args.dist_bn == 'reduce')
+                    distribute_bn(model_ema, args.world_size, args.dist_bn == 'reduce')
+                ema_eval_metrics = validate(
+                    model_ema.module, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast, log_suffix=' (EMA)')
+                eval_metrics = ema_eval_metrics
 
-                eval_metrics = validate(model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast, dgPruner=dgPruner)
+            if lr_scheduler is not None:
+                # step LR for next epoch
+                lr_scheduler.step(epoch + 1, eval_metrics[eval_metric])
 
-                if model_ema is not None and not args.model_ema_force_cpu:
-                    if args.distributed and args.dist_bn in ('broadcast', 'reduce'):
-                        distribute_bn(model_ema, args.world_size, args.dist_bn == 'reduce')
-                    ema_eval_metrics = validate(
-                        model_ema.module, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast, log_suffix=' (EMA)')
-                    eval_metrics = ema_eval_metrics
-
-                if lr_scheduler is not None:
-                    # step LR for next epoch
-                    lr_scheduler.step(epoch + 1, eval_metrics[eval_metric])
-
+            if output_dir is not None:
                 update_summary(
                     epoch, train_metrics, eval_metrics, os.path.join(output_dir, 'summary.csv'),
-                    write_header=best_metric is None)
+                    write_header=best_metric is None, log_wandb=args.log_wandb and has_wandb)
 
+            if saver is not None:
+                # save proper checkpoint with eval metric
                 save_metric = eval_metrics[eval_metric]
-                if saver is not None:
-                    # save proper checkpoint with eval metric
-                    best_metric, best_epoch = saver.save_checkpoint(lth_save_epoch, metric=save_metric)
-                                        # lth saving checkpoints , dgPruner
-                if (args.prune):
-                    if (epoch == num_epochs - 1):
-                        dgPruner.prune_n_reset( epoch )
-                        dgPruner.dump_sparsity_stat(model, output_dir, lth_save_epoch)
-                        dgPruner.apply_mask_to_weight()
-                    if (lth_stage == 0) and (epoch == dgPruner.rewind_epoch(num_epochs)):
-                        checkpoint = pruner_saver.gen_state_dict(epoch, metric=save_metric)
-                        dgPruner.save_rewind_checkpoint(checkpoint)
-                        _logger.info('save rewind checkpoint')
-                    if (epoch == num_epochs - 1):
-                        checkpoint = pruner_saver.gen_state_dict(epoch, metric=save_metric)
-                        dgPruner.save_final_checkpoint(checkpoint)
-                        _logger.info('save final checkpoint')
-
+                best_metric, best_epoch = saver.save_checkpoint(epoch, metric=save_metric)
 
     except KeyboardInterrupt:
         pass
@@ -652,8 +624,8 @@ def main():
 
 def train_one_epoch(
         epoch, model, loader, optimizer, loss_fn, args,
-        lr_scheduler=None, saver=None, output_dir='', amp_autocast=suppress,
-        loss_scaler=None, model_ema=None, mixup_fn=None, dgPruner=None):
+        lr_scheduler=None, saver=None, output_dir=None, amp_autocast=suppress,
+        loss_scaler=None, model_ema=None, mixup_fn=None):
 
     if args.mixup_off_epoch and epoch >= args.mixup_off_epoch:
         if args.prefetcher and loader.mixup_enabled:
@@ -752,20 +724,13 @@ def train_one_epoch(
         end = time.time()
         # end for
 
-        # Mehrdad
-        # if ( args.prune and ( (batch_idx % dgPruner.num_iter_per_update( len(loader) ) ) == 0) ):
-        #     dgPruner.dump_growth_stat(output_dir, epoch)
-        #     dgPruner.prune_n_reset( epoch + batch_idx / len(loader) )
-        #     dgPruner.dump_sparsity_stat(model, output_dir, epoch)
-        # 
-
     if hasattr(optimizer, 'sync_lookahead'):
         optimizer.sync_lookahead()
 
     return OrderedDict([('loss', losses_m.avg)])
 
 
-def validate(model, loader, loss_fn, args, amp_autocast=suppress, log_suffix='', dgPruner=None):
+def validate(model, loader, loss_fn, args, amp_autocast=suppress, log_suffix=''):
     batch_time_m = AverageMeter()
     losses_m = AverageMeter()
     top1_m = AverageMeter()
@@ -776,9 +741,6 @@ def validate(model, loader, loss_fn, args, amp_autocast=suppress, log_suffix='',
     end = time.time()
     last_idx = len(loader) - 1
     with torch.no_grad():
-        # if (dgPruner):
-        #     dgPruner.dump_growth_stat(output_dir, 1000)
-        #     dgPruner.dump_sparsity_stat(model, output_dir, 1000)
         for batch_idx, (input, target) in enumerate(loader):
             last_batch = batch_idx == last_idx
             if not args.prefetcher:
@@ -834,4 +796,3 @@ def validate(model, loader, loss_fn, args, amp_autocast=suppress, log_suffix='',
 
 if __name__ == '__main__':
     main()
-    

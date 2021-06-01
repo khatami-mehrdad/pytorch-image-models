@@ -178,7 +178,7 @@ def validate(args):
     param_count = sum([m.numel() for m in model.parameters()])
     _logger.info('Model %s created, param count: %d' % (args.model, param_count))
 
-    data_config = resolve_data_config(vars(args), model=model, use_test_size=True)
+    data_config = resolve_data_config(vars(args), model=model, use_test_size=True, verbose=True)
     test_time_pool = False
     if not args.no_test_pool:
         model, test_time_pool = apply_test_time_pool(model, data_config, use_test_size=True)
@@ -246,7 +246,7 @@ def validate(args):
     model.eval()
     with torch.no_grad():
         # warmup, reduce variability of first batch time, especially for comparing torchscript vs non
-        input = torch.randn((args.batch_size,) + data_config['input_size']).cuda()
+        input = torch.randn((args.batch_size,) + tuple(data_config['input_size'])).cuda()
         if args.channels_last:
             input = input.contiguous(memory_format=torch.channels_last)
         model(input)
@@ -324,7 +324,7 @@ def main():
         if args.model == 'all':
             # validate all models in a list of names with pretrained checkpoints
             args.pretrained = True
-            model_names = list_models(pretrained=True, exclude_filters=['*in21k'])
+            model_names = list_models(pretrained=True, exclude_filters=['*_in21k', '*_in22k'])
             model_cfgs = [(n, '') for n in model_names]
         elif not is_model(args.model):
             # model name doesn't exist, try as wildcard filter

@@ -1,5 +1,61 @@
 # Recent Changes
 
+### May 25, 2021
+* Add LeViT, Visformer, Convit (PR by Aman Arora), Twins (PR by paper authors) transformer models
+* Cleanup input_size/img_size override handling and testing for all vision transformer models
+* Add `efficientnetv2_rw_m` model and weights (started training before official code). 84.8 top-1, 53M params.
+
+### May 14, 2021
+* Add EfficientNet-V2 official model defs w/ ported weights from official [Tensorflow/Keras](https://github.com/google/automl/tree/master/efficientnetv2) impl.
+  * 1k trained variants: `tf_efficientnetv2_s/m/l`
+  * 21k trained variants: `tf_efficientnetv2_s/m/l_in21k`
+  * 21k pretrained -> 1k fine-tuned: `tf_efficientnetv2_s/m/l_in21ft1k`
+  * v2 models w/ v1 scaling: `tf_efficientnetv2_b0` through `b3`
+  * Rename my prev V2 guess `efficientnet_v2s` -> `efficientnetv2_rw_s`
+  * Some blank `efficientnetv2_*` models in-place for future native PyTorch training
+
+### May 5, 2021
+* Add MLP-Mixer models and port pretrained weights from [Google JAX impl](https://github.com/google-research/vision_transformer/tree/linen)
+* Add CaiT models and pretrained weights from [FB](https://github.com/facebookresearch/deit)
+* Add ResNet-RS models and weights from [TF](https://github.com/tensorflow/tpu/tree/master/models/official/resnet/resnet_rs). Thanks [Aman Arora](https://github.com/amaarora)
+* Add CoaT models and weights. Thanks [Mohammed Rizin](https://github.com/morizin)
+* Add new ImageNet-21k weights & finetuned weights for TResNet, MobileNet-V3, ViT models. Thanks [mrT](https://github.com/mrT23)
+* Add GhostNet models and weights. Thanks [Kai Han](https://github.com/iamhankai)
+* Update ByoaNet attention modles
+   * Improve SA module inits
+   * Hack together experimental stand-alone Swin based attn module and `swinnet`
+   * Consistent '26t' model defs for experiments.
+* Add improved Efficientnet-V2S (prelim model def) weights. 83.8 top-1.
+* WandB logging support
+
+### April 13, 2021
+* Add Swin Transformer models and weights from https://github.com/microsoft/Swin-Transformer
+
+### April 12, 2021
+* Add ECA-NFNet-L1 (slimmed down F1 w/ SiLU, 41M params) trained with this code. 84% top-1 @ 320x320. Trained at 256x256.
+* Add EfficientNet-V2S model (unverified model definition) weights. 83.3 top-1 @ 288x288. Only trained single res 224. Working on progressive training.
+* Add ByoaNet model definition (Bring-your-own-attention) w/ SelfAttention block and corresponding SA/SA-like modules and model defs
+  * Lambda Networks - https://arxiv.org/abs/2102.08602
+  * Bottleneck Transformers - https://arxiv.org/abs/2101.11605
+  * Halo Nets - https://arxiv.org/abs/2103.12731
+* Adabelief optimizer contributed by Juntang Zhuang
+
+### April 1, 2021
+* Add snazzy `benchmark.py` script for bulk `timm` model benchmarking of train and/or inference
+* Add Pooling-based Vision Transformer (PiT) models (from https://github.com/naver-ai/pit)
+  * Merged distilled variant into main for torchscript compatibility
+  * Some `timm` cleanup/style tweaks and weights have hub download support
+* Cleanup Vision Transformer (ViT) models
+  * Merge distilled (DeiT) model into main so that torchscript can work
+  * Support updated weight init (defaults to old still) that closer matches original JAX impl (possibly better training from scratch)
+  * Separate hybrid model defs into different file and add several new model defs to fiddle with, support patch_size != 1 for hybrids
+  * Fix fine-tuning num_class changes (PiT and ViT) and pos_embed resizing (Vit) with distilled variants
+  * nn.Sequential for block stack (does not break downstream compat)
+* TnT (Transformer-in-Transformer) models contributed by author (from https://gitee.com/mindspore/mindspore/tree/master/model_zoo/research/cv/TNT)
+* Add RegNetY-160 weights from DeiT teacher model
+* Add new NFNet-L0 w/ SE attn (rename `nfnet_l0b`->`nfnet_l0`) weights 82.75 top-1 @ 288x288
+* Some fixes/improvements for TFDS dataset wrapper
+
 ### March 7, 2021
 * First 0.4.x PyPi release w/ NFNets (& related), ByoB (GPU-Efficient, RepVGG, etc).
 * Change feature extraction for pre-activation nets (NFNets, ResNetV2) to return features before activation.
