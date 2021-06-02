@@ -605,7 +605,11 @@ def main():
             if (lth_stage != 0):
                 checkpoint = dgPruner.rewind_masked_checkpoint('state_dict')
                 start_epoch = resume_checkpoint_state_dict(unwrap_model(model), checkpoint, optimizer, loss_scaler)
-                dgPruner.dump_sparsity_stat(model, output_dir, lth_stage * 10000) 
+                dgPruner.dump_sparsity_stat(model, output_dir, lth_stage * 10000)
+                # model ema 
+                if model_ema:
+                    model_ema.set(model)
+                    dgPruner.dump_sparsity_stat(model_ema, output_dir, lth_stage * 100000)
 
             lth_saver = saver[lth_stage] if args.local_rank == 0 else None
 
