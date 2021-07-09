@@ -372,7 +372,7 @@ def main():
     dgPruner = DG_Pruner()
     model = dgPruner.swap_prunable_modules(model)
     dgPruner.dump_sparsity_stat(model, epoch=0)
-    pruners = dgPruner.pruners_from_file('DG_Prune/lth_resnet50d.json')
+    pruners = dgPruner.pruners_from_file('DG_Prune/lth_resnet101d.json')
     hooks = dgPruner.add_custom_pruning(model, MagnitudeImportance)
     # Mehrdad: End
     if args.local_rank == 0:
